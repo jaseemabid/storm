@@ -1,4 +1,4 @@
-module Actor where
+module Control.Concurrent.Actor where
 
 import Control.Concurrent
 import Control.Monad (void)
