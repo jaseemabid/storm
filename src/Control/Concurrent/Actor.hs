@@ -1,15 +1,13 @@
 module Control.Concurrent.Actor where
 
+import Prelude hiding (map)
+
 import Control.Concurrent
 import Control.Monad (void)
-import Control.Monad.State (StateT, get, put, runStateT)
+import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.Trans (liftIO)
+import Data.Map.Lazy as Map (Map, keys, empty, lookup, insert)
 import Text.Printf (printf)
-import Debug.Trace (trace)
-import Data.Map.Lazy as Map
-
-debug :: a -> String -> a
-debug = flip trace
 
 type Address = ThreadId
 
@@ -27,16 +25,16 @@ instance Show Data where
 data Message = Message Address Data
 type Mailbox = Chan Data
 
--- | Bus is a map from the process to its mailbox
-type Bus = Map Address Mailbox
+-- | Bus is a map from the process to its mailbox in an MVar
+type Bus = MVar (Map Address Mailbox)
 
 -- | The actor monad, state monad on top of 'IO'.
-type ActorM = StateT Bus IO
+type ActorM = ReaderT Bus IO
 
 -- | Actor is a monadic action in the 'ActorM' monad, returning ()
 type Actor = ActorM ()
 
--- | Get an actor's own address
+-- | Ask an actor's own address
 self :: ActorM Address
 self = liftIO myThreadId
 
@@ -45,49 +43,44 @@ self = liftIO myThreadId
 -- Adds an entry to bus with an empty mailbox and returns the address.
 spawn :: Actor -> ActorM Address
 spawn process = do
-    bus <- get
-    -- Make a mailbox that is shared b/w parent and child thread
-    mbox <- liftIO (newChan :: IO Mailbox)
-
-    let action = initialize mbox >>= (\pid -> process >> cleanup pid)
-
-    -- [review] - How do I run stateful operation inside IO monad?
-    pid <- liftIO $ forkIO $ void $ runStateT action bus
-
-    -- Add mbox to state of parent thread
-    put $ insert pid mbox bus
-    return pid
+    state <- ask
+    let action = initialize >>= (\pid -> process >> cleanup pid)
+    liftIO $ forkIO $ void $ runReaderT action state
 
 -- | Init that is run after the actor is created in the *new* thread
-initialize :: Mailbox -> ActorM Address
-initialize mbox = do
-    bus <- get
+initialize :: ActorM Address
+initialize = do
+    state <- ask
     pid <- self
-    -- Add mbox to state of the new child thread
-    put $ insert pid mbox bus
+    mbox <- liftIO newChan
+
+    liftIO $ modifyMVar_ state $ \map -> return $ insert pid mbox map
     return pid
 
 -- Cleanup that is run after every thread is shutdown
 cleanup :: Address -> Actor
 cleanup _add = return ()
 
+bus :: ActorM (Map Address Mailbox)
+bus = do
+    mvar <- ask
+    liftIO $ readMVar mvar
+
 send :: Address -> Data -> Actor
 send pid message = do
-    me <- self
-    bus <- get
-    case Map.lookup pid bus of
+    map <- bus
+    case Map.lookup pid map of
         Just mbox ->
             liftIO $ writeChan mbox message
         Nothing ->
             -- Sending a message to a process that doesn't exist is a no op
-            -- error $ "Process " ++ show pid ++ " is a zombie"
-            trace ("❌ " ++ pp me ++ " → " ++ pp pid) return ()
+            return ()
 
 receive :: ActorM Data
 receive = do
     pid <- self
-    bus <- get
-    case Map.lookup pid bus of
+    map <- bus
+    case Map.lookup pid map of
         Just mbox ->
             liftIO $ readChan mbox
         Nothing ->
@@ -130,15 +123,15 @@ run = do
     return ()
 
 main :: IO ()
-main = void $ runStateT run (empty :: Bus)
+main = void $ newMVar empty >>= runReaderT run
 
 -- Helpers
 
--- | Get the bus from state
+-- | Ask the bus from state
 registered :: ActorM [Address]
 registered = do
-    bus <- get
-    return $ keys bus
+    map <- bus
+    return $ keys map
 
 pp :: Address -> String
 pp add = show (read (drop 9 $ show add) :: Int)
