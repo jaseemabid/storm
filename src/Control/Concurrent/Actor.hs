@@ -99,20 +99,24 @@ actor wait = do
     pid <- self
     liftIO $ printf "Hello I'm %v\n" (pp pid)
 
-    msg <- receive
-    case msg of
-        S str ->
-            liftIO $ printf "%s got message : %s\n" (pp pid) (show str)
+    loop
+  where
+    loop :: Actor
+    loop = do
+        pid <- self
+        msg <- receive
+        case msg of
+            S str ->
+                liftIO $ printf "%s got message : %s\n" (pp pid) (show str)
 
-        C add "PING" -> do
-            liftIO $ printf "%s PING\n" (pp pid)
-            send add $ C pid "PONG"
+            C add "PING" -> do
+                liftIO $ printf "%s PING\n" (pp pid)
+                send add $ C pid "PONG"
 
-        C add "PONG" -> do
-            liftIO $ printf "%s PONG\n" (pp pid)
-            send add $ C pid "PING"
-
-    actor wait
+            C add "PONG" -> do
+                liftIO $ printf "%s PONG\n" (pp pid)
+                send add $ C pid "PING"
+        loop
 
 run :: Actor
 run = do
@@ -122,7 +126,7 @@ run = do
     -- send first $ C second "PING"
     send second $ C first "PING"
 
-    liftIO $ threadDelay (10^6 * 5 :: Int)
+    liftIO $ threadDelay 5000000
     return ()
 
 main :: IO ()
