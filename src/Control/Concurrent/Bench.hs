@@ -22,7 +22,8 @@ actor finish = loop 0
         pid <- self
         msg <- receive
         case msg of
-            Data add i -> send add $ Data pid (i + 1)
+            Data address i ->
+                address ! Data pid (i + 1)
         loop $ counter + 1
 
 run :: Actor

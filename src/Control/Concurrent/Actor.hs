@@ -71,6 +71,9 @@ send pid message = do
             -- Sending a message to a process that doesn't exist is a no op
             return ()
 
+(!) :: Address -> Data -> Actor
+(!) = send
+
 receive :: ActorM Data
 receive = do
     pid <- self
