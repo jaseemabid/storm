@@ -36,20 +36,27 @@ self = liftIO myThreadId
 -- | Spawns a process.
 --
 -- Adds an entry to bus with an empty mailbox and returns the address.
+--
+-- Messages sent b/w the small interval after spawn returns and before the
+-- mailbox is setup will be lead to message loss. await mvar fixes that.
 spawn :: Actor -> ActorM Address
 spawn process = do
     state <- ask
-    let action = initialize >>= (\pid -> process >> cleanup pid)
-    liftIO $ forkIO $ void $ runReaderT action state
+    await <- liftIO newEmptyMVar
+    let action = initialize await >>= (\pid -> process >> cleanup pid)
+    pid <- liftIO $ forkIO $ void $ runReaderT action state
+    liftIO $ takeMVar await
+    return pid
 
 -- | Init that is run after the actor is created in the *new* thread
-initialize :: ActorM Address
-initialize = do
+initialize :: MVar () -> ActorM Address
+initialize ready = do
     state <- ask
     pid <- self
     mbox <- liftIO newChan
 
     liftIO $ modifyMVar_ state $ \map -> return $ insert pid mbox map
+    liftIO $ putMVar ready ()
     return pid
 
 -- Cleanup that is run after every thread is shutdown
