@@ -1,4 +1,6 @@
 module Main where
 
+import Control.Concurrent.Bench (bench)
+
 main :: IO ()
-main = putStrLn "Hello Storm!"
+main = bench

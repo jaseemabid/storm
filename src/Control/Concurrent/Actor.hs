@@ -6,8 +6,7 @@ import Control.Concurrent
 import Control.Monad (void)
 import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.Trans (liftIO)
-import Data.Map.Lazy as Map (Map, keys, empty, lookup, insert)
-import Data.Time
+import Data.Map.Lazy as Map (Map, keys, lookup, insert)
 
 type Address = ThreadId
 
@@ -81,40 +80,6 @@ receive = do
             liftIO $ readChan mbox
         Nothing ->
             error $ "Process " ++ show pid ++ " is a zombie"
-
-actor :: MVar () -> Actor
-actor finish = loop 0
-  where
-    loop :: Int -> Actor
-    loop 100000 = do
-        liftIO (putMVar finish ())
-        return ()
-    loop counter = do
-        pid <- self
-        msg <- receive
-        case msg of
-            Data add i -> send add $ Data pid (i + 1)
-        loop $ counter + 1
-
-run :: Actor
-run = do
-
-    start <- liftIO $ getCurrentTime
-    finish <- liftIO newEmptyMVar
-
-    first <- spawn $ actor finish
-    second <- spawn $ actor finish
-
-    send second $ Data first 0
-
-    liftIO $ takeMVar finish
-    stop <- liftIO $ getCurrentTime
-
-    liftIO $ print $ diffUTCTime stop start
-    return ()
-
-main :: IO ()
-main = void $ newMVar empty >>= runReaderT run
 
 -- Helpers
 
