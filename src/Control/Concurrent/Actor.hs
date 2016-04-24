@@ -7,20 +7,16 @@ import Control.Monad (void)
 import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.Trans (liftIO)
 import Data.Map.Lazy as Map (Map, keys, empty, lookup, insert)
-import Text.Printf (printf)
+import Data.Time
 
 type Address = ThreadId
 
 -- [todo] Make data a typeclass
 -- http://chrisdone.com/posts/data-typeable
-data Data = S String
-          | A Address
-          | C Address String  -- Compound
+data Data = Data Address Integer
 
 instance Show Data where
-    show (S string) = show string
-    show (A address) = pp address
-    show (C address string) = show string ++ " from " ++ pp address
+    show (Data address string) = show string ++ " from " ++ pp address
 
 data Message = Message Address Data
 type Mailbox = Chan Data
@@ -86,40 +82,35 @@ receive = do
         Nothing ->
             error $ "Process " ++ show pid ++ " is a zombie"
 
-actor :: Int -> Actor
-actor wait = do
-    liftIO $ threadDelay wait
-    pid <- self
-    liftIO $ printf "Hello I'm %v\n" (pp pid)
-
-    loop
+actor :: MVar () -> Actor
+actor finish = loop 0
   where
-    loop :: Actor
-    loop = do
+    loop :: Int -> Actor
+    loop 100000 = do
+        liftIO (putMVar finish ())
+        return ()
+    loop counter = do
         pid <- self
         msg <- receive
         case msg of
-            S str ->
-                liftIO $ printf "%s got message : %s\n" (pp pid) (show str)
-
-            C add "PING" -> do
-                liftIO $ printf "%s PING\n" (pp pid)
-                send add $ C pid "PONG"
-
-            C add "PONG" -> do
-                liftIO $ printf "%s PONG\n" (pp pid)
-                send add $ C pid "PING"
-        loop
+            Data add i -> send add $ Data pid (i + 1)
+        loop $ counter + 1
 
 run :: Actor
 run = do
-    first <- spawn $ actor 00
-    second <- spawn $ actor 1000
 
-    -- send first $ C second "PING"
-    send second $ C first "PING"
+    start <- liftIO $ getCurrentTime
+    finish <- liftIO newEmptyMVar
 
-    liftIO $ threadDelay 5000000
+    first <- spawn $ actor finish
+    second <- spawn $ actor finish
+
+    send second $ Data first 0
+
+    liftIO $ takeMVar finish
+    stop <- liftIO $ getCurrentTime
+
+    liftIO $ print $ diffUTCTime stop start
     return ()
 
 main :: IO ()

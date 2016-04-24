@@ -18,7 +18,8 @@ library
   exposed-modules:     Control.Concurrent.Actor
   build-depends:       base,
                        containers,
-                       mtl
+                       mtl,
+                       time
   default-language:    Haskell2010
 
 executable storm
