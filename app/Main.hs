@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Concurrent.Bench (bench)
+import qualified Control.Concurrent.Bench
 
 main :: IO ()
-main = bench
+main = Control.Concurrent.Bench.main

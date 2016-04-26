@@ -19,8 +19,8 @@ library
                        Control.Concurrent.Bench
   build-depends:       base,
                        containers,
-                       mtl,
-                       time
+                       criterion,
+                       mtl
   default-language:    Haskell2010
 
 executable storm
@@ -30,8 +30,8 @@ executable storm
   build-depends:       base,
                        storm,
                        containers,
-                       mtl,
-                       time
+                       criterion,
+                       mtl
   default-language:    Haskell2010
 
 test-suite storm-test

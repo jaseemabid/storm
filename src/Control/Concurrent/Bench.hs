@@ -1,4 +1,4 @@
-module Control.Concurrent.Bench where
+module Control.Concurrent.Bench (main) where
 
 import Prelude hiding (map)
 
@@ -6,20 +6,20 @@ import Control.Concurrent
 import Control.Monad (void)
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.Trans (liftIO)
+import Criterion.Main (defaultMain, bench, whnf, bgroup)
 import Data.Map.Lazy as Map (empty)
-import Data.Time
 
 import Control.Concurrent.Actor
 
 data M = M Address Integer
 
-actor :: MVar () -> Actor M
-actor finish = do
+increment :: MVar () -> Int -> Actor M
+increment finish count = do
     pid <- self
     loop pid 0
   where
     loop :: Address -> Int -> Actor M
-    loop _add 100000 = do
+    loop _add count = do
         liftIO $ putMVar finish ()
         return ()
     loop pid counter = do
@@ -29,24 +29,27 @@ actor finish = do
                 address ! M pid (i + 1)
         loop pid $ counter + 1
 
-run :: Actor M
-run = do
-    start <- liftIO getCurrentTime
+run :: Int -> IO ()
+run count = void $ newMVar empty >>= runReaderT run'
+  where
+    run' :: Actor M
+    run' = do
+        one <- liftIO newEmptyMVar
+        two <- liftIO newEmptyMVar
 
-    one <- liftIO newEmptyMVar
-    two <- liftIO newEmptyMVar
+        first <- spawn $ increment one count
+        second <- spawn $ increment two count
 
-    first <- spawn $ actor one
-    second <- spawn $ actor two
+        second ! M first 0
 
-    second ! M first 0
+        liftIO $ takeMVar one
+        liftIO $ takeMVar two
 
-    liftIO $ takeMVar one
-    liftIO $ takeMVar two
+        return ()
 
-    stop <- liftIO getCurrentTime
-    liftIO $ print $ diffUTCTime stop start
-    return ()
-
-bench :: IO ()
-bench = void $ newMVar empty >>= runReaderT run
+main = defaultMain [
+    bgroup "run" [ bench "100K"  $ whnf run 100000
+                 , bench "500K"  $ whnf run 500000
+                 , bench "1M"  $ whnf run 100000
+                 ]
+    ]
