@@ -19,15 +19,13 @@ increment finish count = do
     loop pid 0
   where
     loop :: Address -> Int -> Actor M
-    loop _add count = do
-        liftIO $ putMVar finish ()
-        return ()
-    loop pid counter = do
-        msg <- receive
-        case msg of
-            M address i ->
-                address ! M pid (i + 1)
-        loop pid $ counter + 1
+    loop pid counter =
+        if counter == count
+        then liftIO $ putMVar finish ()
+        else do
+            M address i <- receive
+            address ! M pid (i + 1)
+            loop pid $ counter + 1
 
 run :: Int -> IO ()
 run count = void $ newMVar empty >>= runReaderT run'
@@ -47,6 +45,7 @@ run count = void $ newMVar empty >>= runReaderT run'
 
         return ()
 
+main :: IO ()
 main = defaultMain [
     bgroup "run" [ bench "100K"  $ whnf run 100000
                  , bench "500K"  $ whnf run 500000
