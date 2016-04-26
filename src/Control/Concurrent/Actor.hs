@@ -10,27 +10,20 @@ import Data.Map.Lazy as Map (Map, keys, lookup, insert)
 
 type Address = ThreadId
 
--- [todo] Make data a typeclass
--- http://chrisdone.com/posts/data-typeable
-data Data = Data Address Integer
-
-instance Show Data where
-    show (Data address string) = show string ++ " from " ++ pp address
-
-data Message = Message Address Data
-type Mailbox = Chan Data
+data Message a = Message Address a
+type Mailbox a = Chan a
 
 -- | Bus is a map from the process to its mailbox in an MVar
-type Bus = MVar (Map Address Mailbox)
+type Bus a = MVar (Map Address (Mailbox a))
 
 -- | The actor monad, state monad on top of 'IO'.
-type ActorM = ReaderT Bus IO
+type ActorM a = ReaderT (Bus a) IO
 
 -- | Actor is a monadic action in the 'ActorM' monad, returning ()
-type Actor = ActorM ()
+type Actor a = ActorM a ()
 
 -- | Ask an actor's own address
-self :: ActorM Address
+self :: ActorM a Address
 self = liftIO myThreadId
 
 -- | Spawns a process.
@@ -39,7 +32,7 @@ self = liftIO myThreadId
 --
 -- Messages sent b/w the small interval after spawn returns and before the
 -- mailbox is setup will be lead to message loss. await mvar fixes that.
-spawn :: Actor -> ActorM Address
+spawn :: Actor a -> ActorM a Address
 spawn process = do
     state <- ask
     await <- liftIO newEmptyMVar
@@ -49,7 +42,7 @@ spawn process = do
     return pid
 
 -- | Init that is run after the actor is created in the *new* thread
-initialize :: MVar () -> ActorM Address
+initialize :: MVar () -> ActorM a Address
 initialize ready = do
     state <- ask
     pid <- self
@@ -60,15 +53,15 @@ initialize ready = do
     return pid
 
 -- Cleanup that is run after every thread is shutdown
-cleanup :: Address -> Actor
+cleanup :: Address -> Actor a
 cleanup _add = return ()
 
-bus :: ActorM (Map Address Mailbox)
+bus :: ActorM a (Map Address (Mailbox a))
 bus = do
     mvar <- ask
     liftIO $ readMVar mvar
 
-send :: Address -> Data -> Actor
+send :: Address -> a -> Actor a
 send pid message = do
     map <- bus
     case Map.lookup pid map of
@@ -78,10 +71,10 @@ send pid message = do
             -- Sending a message to a process that doesn't exist is a no op
             return ()
 
-(!) :: Address -> Data -> Actor
+(!) :: Address -> a -> Actor a
 (!) = send
 
-receive :: ActorM Data
+receive :: ActorM a a
 receive = do
     pid <- self
     map <- bus
@@ -94,7 +87,7 @@ receive = do
 -- Helpers
 
 -- | Ask the bus from state
-registered :: ActorM [Address]
+registered :: ActorM a [Address]
 registered = do
     map <- bus
     return $ keys map

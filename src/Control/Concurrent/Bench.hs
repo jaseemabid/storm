@@ -11,23 +11,25 @@ import Data.Time
 
 import Control.Concurrent.Actor
 
-actor :: MVar () -> Actor
+data M = M Address Integer
+
+actor :: MVar () -> Actor M
 actor finish = do
     pid <- self
     loop pid 0
   where
-    loop :: Address -> Int -> Actor
+    loop :: Address -> Int -> Actor M
     loop _add 100000 = do
         liftIO $ putMVar finish ()
         return ()
     loop pid counter = do
         msg <- receive
         case msg of
-            Data address i ->
-                address ! Data pid (i + 1)
+            M address i ->
+                address ! M pid (i + 1)
         loop pid $ counter + 1
 
-run :: Actor
+run :: Actor M
 run = do
     start <- liftIO getCurrentTime
 
@@ -37,7 +39,7 @@ run = do
     first <- spawn $ actor one
     second <- spawn $ actor two
 
-    second ! Data first 0
+    second ! M first 0
 
     liftIO $ takeMVar one
     liftIO $ takeMVar two
