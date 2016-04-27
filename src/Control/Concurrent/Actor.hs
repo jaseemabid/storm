@@ -56,14 +56,13 @@ initialize ready = do
 cleanup :: Address -> Actor a
 cleanup _add = return ()
 
-bus :: ActorM a (Map Address (Mailbox a))
-bus = do
-    mvar <- ask
-    liftIO $ readMVar mvar
+-- | Fetch exchange from context
+exchange :: ActorM a (Map Address (Mailbox a))
+exchange = ask >>= liftIO . readMVar
 
 send :: Address -> a -> Actor a
 send pid message = do
-    map <- bus
+    map <- exchange
     case Map.lookup pid map of
         Just mbox ->
             liftIO $ writeChan mbox message
@@ -77,7 +76,7 @@ send pid message = do
 receive :: ActorM a a
 receive = do
     pid <- self
-    map <- bus
+    map <- exchange
     case Map.lookup pid map of
         Just mbox ->
             liftIO $ readChan mbox
@@ -89,7 +88,7 @@ receive = do
 -- | Ask the bus from state
 registered :: ActorM a [Address]
 registered = do
-    map <- bus
+    map <- exchange
     return $ keys map
 
 pp :: Address -> String
