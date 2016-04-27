@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Control.Concurrent.Actor where
 
 import Prelude hiding (map)
@@ -6,18 +7,26 @@ import Control.Concurrent
 import Control.Monad (void)
 import Control.Monad.Reader (ReaderT, ask, runReaderT)
 import Control.Monad.Trans (liftIO)
-import Data.Map.Lazy as Map (Map, keys, lookup, insert)
+import Data.Map.Lazy as Map (Map, keys, lookup, insert, fromList)
 
 type Address = ThreadId
-
-data Message a = Message Address a
 type Mailbox a = Chan a
 
 -- | Bus is a map from the process to its mailbox in an MVar
-type Bus a = MVar (Map Address (Mailbox a))
+type Bus a = Map Address (Mailbox a)
+
+-- | Registry is a map from name to process ID
+-- [todo] - Replace string with a
+type Registry = Map String Address
+
+-- | [TODO] - Anything that can be compared must be a Name
+type Name = String
+
+-- | GADTs might help to replace Name with `Eq a => ...`
+data Context a = Context (Bus a) Registry
 
 -- | The actor monad, state monad on top of 'IO'.
-type ActorM a = ReaderT (Bus a) IO
+type ActorM a = ReaderT (MVar (Context a)) IO
 
 -- | Actor is a monadic action in the 'ActorM' monad, returning ()
 type Actor a = ActorM a ()
@@ -34,7 +43,7 @@ self = liftIO myThreadId
 -- mailbox is setup will be lead to message loss. await mvar fixes that.
 spawn :: Actor a -> ActorM a Address
 spawn process = do
-    state <- ask
+    state :: MVar (Context a) <- ask
     await <- liftIO newEmptyMVar
     let action = initialize await >>= (\pid -> process >> cleanup pid)
     pid <- liftIO $ forkIO $ void $ runReaderT action state
@@ -44,13 +53,17 @@ spawn process = do
 -- | Init that is run after the actor is created in the *new* thread
 initialize :: MVar () -> ActorM a Address
 initialize ready = do
-    state <- ask
+    state :: MVar (Context a) <- ask
     pid <- self
     mbox <- liftIO newChan
-
-    liftIO $ modifyMVar_ state $ \map -> return $ insert pid mbox map
+    -- modifyMVar_ :: MVar a -> (a -> IO a) -> IO ()
+    liftIO $ modifyMVar_ state $ update pid mbox
     liftIO $ putMVar ready ()
     return pid
+  where
+    update :: Address -> Mailbox a -> Context a -> IO (Context a)
+    update pid mbox (Context bus registry) =
+        return $ Context (insert pid mbox bus) registry
 
 -- Cleanup that is run after every thread is shutdown
 cleanup :: Address -> Actor a
@@ -58,7 +71,31 @@ cleanup _add = return ()
 
 -- | Fetch exchange from context
 exchange :: ActorM a (Map Address (Mailbox a))
-exchange = ask >>= liftIO . readMVar
+exchange = do
+    Context bus _registry <- ask >>= liftIO . readMVar
+    return bus
+
+-- | Fetch registry from context
+registry :: ActorM a Registry
+registry = do
+    Context _bus registry <- ask >>= liftIO . readMVar
+    return registry
+
+
+register :: String -> Address -> Actor a
+register name address = do
+    state :: MVar (Context a) <- ask
+    liftIO $ modifyMVar_ state update
+  where
+    update :: Context a -> IO (Context a)
+    update (Context bus registry) =
+        return $ Context bus $ insert name address registry
+
+-- | Ask the bus from state
+registered :: ActorM a [Address]
+registered = do
+    map <- exchange
+    return $ keys map
 
 send :: Address -> a -> Actor a
 send pid message = do
@@ -73,6 +110,21 @@ send pid message = do
 (!) :: Address -> a -> Actor a
 (!) = send
 
+-- Send by name
+-- [TODO] - Merge sendN with with send if possible
+sendN :: Name -> a -> Actor a
+sendN name message = do
+    map <- registry
+    case Map.lookup name map of
+        Just pid ->
+            send pid message
+        Nothing ->
+            -- Sending a message to a process that doesn't exist is a no op
+            return ()
+
+(!$) :: Name -> a -> Actor a
+(!$) = sendN
+
 receive :: ActorM a a
 receive = do
     pid <- self
@@ -85,11 +137,9 @@ receive = do
 
 -- Helpers
 
--- | Ask the bus from state
-registered :: ActorM a [Address]
-registered = do
-    map <- exchange
-    return $ keys map
-
 pp :: Address -> String
 pp add = show (read (drop 9 $ show add) :: Int)
+
+-- | Default context
+context :: Context a
+context = Context (fromList []) (fromList [])
